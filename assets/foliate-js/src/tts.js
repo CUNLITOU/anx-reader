@@ -20,6 +20,27 @@ const isLocalLink = href => {
     return !/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed)
 }
 
+const getTypes = el => new Set(el?.getAttributeNS?.('http://www.idpf.org/2007/ops', 'type')?.split(' '))
+const getRoles = el => new Set(el?.getAttribute?.('role')?.split(' '))
+
+const isSuper = el => {
+    const { verticalAlign } = getComputedStyle(el)
+    return verticalAlign === 'super' || /^\d/.test(verticalAlign)
+}
+
+const refTypes = ['biblioref', 'glossref', 'noteref']
+const refRoles = ['doc-biblioref', 'doc-glossref', 'doc-noteref']
+const isFootnoteReference = a => {
+    const types = getTypes(a)
+    const roles = getRoles(a)
+    return {
+        yes: refRoles.some(r => roles.has(r)) || refTypes.some(t => types.has(t)),
+        maybe: () => !types.has('backlink') && !roles.has('doc-backlink')
+            && (isSuper(a) || a.children.length === 1 && isSuper(a.children[0])
+                || isSuper(a.parentElement)),
+    }
+}
+
 const shouldSkipTextNode = node => {
     const parent = node.parentElement
     if (!parent) return false
@@ -28,12 +49,24 @@ const shouldSkipTextNode = node => {
     return isLocalLink(anchor.getAttribute('href'))
 }
 
+const isFootnoteNumber = node => {
+    const parent = node.parentElement
+    if (!parent) return false
+    const anchor = parent.closest('a')
+    if (!anchor) return false
+    const { yes, maybe } = isFootnoteReference(anchor)
+    if (yes) return true
+    if (maybe()) return true
+    return false
+}
+
 const getRangeText = range => {
     const fragment = range.cloneContents()
     const walker = document.createTreeWalker(fragment, NodeFilter.SHOW_TEXT)
     let text = ''
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
         if (shouldSkipTextNode(node)) continue
+        if (isFootnoteNumber(node)) continue
         text += node.textContent ?? ''
     }
     return text
